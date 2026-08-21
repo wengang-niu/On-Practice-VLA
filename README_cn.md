@@ -28,3 +28,4 @@ PI系列
 GROOT
 eepmind.google/models/gemini-robotics/
 generalistai.com/blog/gen-1.5
+https://github.com/jeongeun980906/lerobot-mujoco-tutorial
