@@ -28,4 +28,7 @@ PI系列
 GROOT
 eepmind.google/models/gemini-robotics/
 generalistai.com/blog/gen-1.5
-https://github.com/jeongeun980906/lerobot-mujoco-tutorial
+
+## MuJoCo 学习
+
+从 [basic_knowledge/mujoco/README.md](basic_knowledge/mujoco/README.md) 的渐进式示例开始，依次学习 XML 建模、状态读取、关节控制、接触传感器、相机渲染、Gymnasium 环境和轨迹数据，再阅读 [lerobot-mujoco-tutorial](https://github.com/jeongeun980906/lerobot-mujoco-tutorial)。
