@@ -24,58 +24,6 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, utils
 
-# ---------------- 用户配置 ----------------
-# 通过 KaggleHub 下载 CelebA 数据集，返回值为数据集缓存目录。
-data_root = kagglehub.dataset_download("jessicali9530/celeba-dataset")
-print("Path to dataset files:", data_root)
-
-save_dir = "./flowmatch_checkpoints"                 # 模型权重 / 采样图的保存目录
-os.makedirs(save_dir, exist_ok=True)
-batch_size = 32          # 每批样本数
-lr = 1e-4                # 学习率
-num_epochs = 100         # 训练轮数
-image_size = 104         # 图像缩放到 104x104
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有 GPU 用 GPU
-num_workers = 4          # 数据加载的并行进程数
-pin_memory = True        # 锁页内存，加速数据搬运到 GPU
-sample_every = 1         # 每隔多少个 epoch 采样一次生成图像
-num_sample_images = 9    # 每次采样生成的图像数量
-base_ch = 128            # UNet 基础通道数
-flow_steps = 200         # 采样时的积分步数（步数越多越精确，越慢）
-
-# ---------------- 数据 ----------------
-transform = transforms.Compose([
-    transforms.Resize(image_size),      # 缩放到指定尺寸
-    transforms.CenterCrop(image_size),  # 中心裁剪成正方形
-    transforms.ToTensor(),              # 转为 Tensor，值域 [0,1]
-])
-
-class CelebADataset(Dataset):
-    """CelebA 人脸数据集封装：读取图片 → 预处理 → 缩放到 [-1,1]（与噪声分布对齐）。"""
-    def __init__(self, root, transform=None):
-        self.root = root
-        # KaggleHub 数据集通常包含嵌套目录，因此递归查找所有 JPG 文件。
-        self.paths = sorted(glob.glob(os.path.join(root, "**", "*.jpg"), recursive=True))
-        if not self.paths:
-            raise FileNotFoundError(f"No JPG images found under Kaggle dataset path: {root}")
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.paths)
-
-    def __getitem__(self, idx):
-        img_path = self.paths[idx]
-        img = Image.open(img_path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
-        # 从 [0,1] 缩放到 [-1,1]，与训练时采样的标准正态噪声 x_0 ~ N(0,1) 范围一致
-        img = img * 2.0 - 1.0
-        return img
-
-dataset = CelebADataset(root=data_root, transform=transform)
-loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                    num_workers=num_workers, pin_memory=pin_memory)
-
 # -- 模型定义开始 --
 class SinusoidalPosEmb(nn.Module):
     """时间步 t 的正弦位置编码。
@@ -239,35 +187,20 @@ class EnhancedUNet(nn.Module):
 
         # 时间 t → 正弦编码 → MLP → time_emb_dim 维嵌入
         self.time_mlp = nn.Sequential(
-            SinusoidalPosEmb(base_ch),
-            nn.Linear(base_ch, time_emb_dim),
-            nn.SiLU(),
-            nn.Linear(time_emb_dim, time_emb_dim)
+            SinusoidalPosEmb(base_ch),  
+            nn.Linear(base_ch, time_emb_dim), #线性函数
+            nn.SiLU(), #Sigmoid函数 
+            nn.Linear(time_emb_dim, time_emb_dim)  #线性函数
         )
 
         self.init_conv = nn.Conv2d(in_ch, base_ch, kernel_size=3, padding=1)
 
         # 下采样：通道 base_ch → 2x → 4x → 8x，空间尺寸逐层减半
-        self.down1 = DownBlock(base_ch, base_ch, time_emb_dim, num_res_blocks, downsample=False)
-        self.down2 = DownBlock(base_ch, base_ch * 2, time_emb_dim, num_res_blocks)
-        self.down3 = DownBlock(base_ch * 2, base_ch * 4, time_emb_dim, num_res_blocks)
-        self.down4 = DownBlock(base_ch * 4, base_ch * 8, time_emb_dim, num_res_blocks, use_attention=True)
+3, H, W)   —— B 张图，3 通道（RGB），高 H 宽 W
+经过 nn.Conv2d(in_ch=3, base_ch=128, kernel_size=3, padding=1) 后变成：
 
-        self.mid = MidBlock(base_ch * 8, time_emb_dim, num_res_blocks * 2)
 
-        # 上采样：通道 8x → 4x → 2x → base_ch，空间尺寸逐层恢复
-        self.up4 = UpBlock(base_ch * 8, base_ch * 4, time_emb_dim, num_res_blocks, use_attention=True)
-        self.up3 = UpBlock(base_ch * 4, base_ch * 2, time_emb_dim, num_res_blocks)
-        self.up2 = UpBlock(base_ch * 2, base_ch, time_emb_dim, num_res_blocks)
-        self.up1 = UpBlock(base_ch, base_ch, time_emb_dim, num_res_blocks, upsample=False)
-
-        # 输出层：归一化 + 激活 + 卷积到 3 通道（RGB 速度场）
-        self.final = nn.Sequential(
-            nn.GroupNorm(8, base_ch),
-            nn.SiLU(),
-            nn.Conv2d(base_ch, in_ch, kernel_size=3, padding=1)
-        )
-
+(B, 128, H, W)  —— 通道从 3 → 128，高宽不变
     def forward(self, x, t):
         # t: (B,) 浮点数，值域 [0,1]
         t_emb = self.time_mlp(t)
@@ -290,14 +223,30 @@ class EnhancedUNet(nn.Module):
 
 # -- 模型定义结束 --
 
-# ---------------- 准备模型、优化器 ----------------
-model = EnhancedUNet(in_ch=3, base_ch=base_ch, time_emb_dim=512, num_res_blocks=2).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+class CelebADataset(Dataset):
+    """CelebA 人脸数据集封装：读取图片 → 预处理 → 缩放到 [-1,1]（与噪声分布对齐）。"""
+    def __init__(self, root, transform=None):
+        self.root = root
+        # KaggleHub 数据集通常包含嵌套目录，因此递归查找所有 JPG 文件。
+        self.paths = sorted(glob.glob(os.path.join(root, "**", "*.jpg"), recursive=True))
+        if not self.paths:
+            raise FileNotFoundError(f"No JPG images found under Kaggle dataset path: {root}")
+        self.transform = transform
 
-mse = nn.MSELoss()  # 损失函数：预测速度场与真实速度场的 MSE
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, idx):
+        img_path = self.paths[idx]
+        img = Image.open(img_path).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        # 从 [0,1] 缩放到 [-1,1]，与训练时采样的标准正态噪声 x_0 ~ N(0,1) 范围一致
+        img = img * 2.0 - 1.0
+        return img
 
 # ---------------- 工具函数：保存采样图像网格 ----------------
-def save_samples(x, epoch):
+def save_samples(x, epoch, save_dir):
     # x: 值域 [-1,1] 的张量，形状 (N,3,H,W)
     out = (x.clamp(-1,1) + 1.0) / 2.0  # 缩回 [0,1]
     grid = utils.make_grid(out, nrow=int(math.sqrt(out.shape[0]) + 0.999), padding=2)  # 拼成一张网格图
@@ -307,7 +256,7 @@ def save_samples(x, epoch):
 
 # ---------------- 采样函数（欧拉积分求解 ODE） ----------------
 @torch.no_grad()
-def sample_flow(model, n_samples=8, steps=200, device=device):
+def sample_flow(model, n_samples, steps, image_size, device):
     """从纯噪声出发，沿学到的速度场欧拉积分生成图像。
 
     即求解 ODE  dx/dt = u(x, t)，t 从 0 积到 1，初始 x(0) ~ N(0,1)。
@@ -324,59 +273,100 @@ def sample_flow(model, n_samples=8, steps=200, device=device):
     model.train()
     return x.clamp(-1,1)
 
-# ---------------- 训练循环 ----------------
-print("Starting training... device:", device)
-total_loss = 0.0   # 累计损失，用于统计平均
-step_count = 0     # 累计步数，用于统计平均
-global_step = 0    # 全局步数（跨 epoch）
-for epoch in range(num_epochs):
-    for z in loader:
-        z = z.to(device)  # 真实图像 x_1，值域 [-1,1]，形状 (B,3,H,W)
-        B = z.shape[0]
+def main():
+    # ---------------- 用户配置 ----------------
+    # 通过 KaggleHub 下载 CelebA 数据集，返回值为数据集缓存目录。
+    data_root = kagglehub.dataset_download("jessicali9530/celeba-dataset")
+    print("Path to dataset files:", data_root)
 
-        # 采样初始噪声 x_0 ~ N(0,1)
-        x_0 = torch.randn_like(z)
+    save_dir = "./flowmatch_checkpoints"                 # 模型权重 / 采样图的保存目录
+    os.makedirs(save_dir, exist_ok=True)
+    batch_size = 16         # 每批样本数
+    lr = 1e-4                # 学习率
+    num_epochs = 100         # 训练轮数
+    image_size = 104         # 图像缩放到 104x104
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有 GPU 用 GPU
+    num_workers = 4          # 数据加载的并行进程数
+    pin_memory = True        # 锁页内存，加速数据搬运到 GPU
+    sample_every = 1         # 每隔多少个 epoch 采样一次生成图像
+    num_sample_images = 9    # 每次采样生成的图像数量
+    base_ch = 128            # UNet 基础通道数
+    flow_steps = 200         # 采样时的积分步数（步数越多越精确，越慢）
 
-        # 采样时间 t ~ Uniform(0,1)
-        t = torch.rand(B, device=device, dtype=torch.float32)
+    # ---------------- 数据 ----------------
+    transform = transforms.Compose([
+        transforms.Resize(image_size),      # 缩放到指定尺寸
+        transforms.CenterCrop(image_size),  # 中心裁剪成正方形
+        transforms.ToTensor(),              # 转为 Tensor，值域 [0,1]
+    ])
 
-        # 构造插值点 x_t = t*z + (1-t)*x_0（Flow Matching 的直线路径）
-        t_broadcast = t.view(B, 1, 1, 1)
-        x_t = t_broadcast * z + (1.0 - t_broadcast) * x_0
+    dataset = CelebADataset(root=data_root, transform=transform)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                        num_workers=num_workers, pin_memory=pin_memory)
 
-        # 真实速度场 u_target = d(x_t)/dt = z - x_0（对直线路径求导）
-        u_target = (z - x_0).detach()
+    # ---------------- 准备模型、优化器 ----------------
+    model = EnhancedUNet(in_ch=3, base_ch=base_ch, time_emb_dim=512, num_res_blocks=2).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        optimizer.zero_grad()
+    mse = nn.MSELoss()  # 损失函数：预测速度场与真实速度场的 MSE
 
-        pred = model(x_t, t)  # 预测速度场，t 形状 (B,)
-        loss = mse(pred, u_target)
+    # ---------------- 训练循环 ----------------
+    print("Starting training... device:", device)
+    total_loss = 0.0   # 累计损失，用于统计平均
+    step_count = 0     # 累计步数，用于统计平均
+    global_step = 0    # 全局步数（跨 epoch）
+    for epoch in range(num_epochs):
+        for z in loader:
+            z = z.to(device)  # 真实图像 x_1，值域 [-1,1]，形状 (B,3,H,W)
+            B = z.shape[0]
 
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 梯度裁剪，防止梯度爆炸
-        optimizer.step()
-        total_loss += loss.item()
-        step_count += 1
-        if global_step % 500 == 0:
-            avg_loss = total_loss / step_count
-            print(f"Epoch {epoch:03d} Step {global_step:06d} Average Loss: {avg_loss:.6f}")
-            total_loss = 0.0
-            step_count = 0
+            # 采样初始噪声 x_0 ~ N(0,1)
+            x_0 = torch.randn_like(z)
 
-        global_step += 1
-    # 每个采样周期生成一批图像并保存
-    if epoch % sample_every == 0:
-        samples = sample_flow(model, n_samples=num_sample_images, steps=flow_steps, device=device)
-        save_samples(samples, epoch)
-    # 每个 epoch 结束保存一次 checkpoint
-    ckpt = {
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "global_step": global_step,
-        "epoch": epoch
-    }
-    ckpt_path = os.path.join(save_dir, f"flowmatch_ckpt_epoch_{epoch:03d}.pt")
-    torch.save(ckpt, ckpt_path)
-    print(f"[saved checkpoint] {ckpt_path}")
+            # 采样时间 t ~ Uniform(0,1)
+            t = torch.rand(B, device=device, dtype=torch.float32)
 
-print("Training finished.")
+            # 构造插值点 x_t = t*z + (1-t)*x_0（Flow Matching 的直线路径）
+            t_broadcast = t.view(B, 1, 1, 1)
+            x_t = t_broadcast * z + (1.0 - t_broadcast) * x_0
+
+            # 真实速度场 u_target = d(x_t)/dt = z - x_0（对直线路径求导）
+            u_target = (z - x_0).detach()
+
+            optimizer.zero_grad()
+
+            pred = model(x_t, t)  # 预测速度场，t 形状 (B,)
+            loss = mse(pred, u_target)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 梯度裁剪，防止梯度爆炸
+            optimizer.step()
+            total_loss += loss.item()
+            step_count += 1
+            if global_step % 500 == 0:
+                avg_loss = total_loss / step_count
+                print(f"Epoch {epoch:03d} Step {global_step:06d} Average Loss: {avg_loss:.6f}")
+                total_loss = 0.0
+                step_count = 0
+
+            global_step += 1
+        # 每个采样周期生成一批图像并保存
+        if epoch % sample_every == 0:
+            samples = sample_flow(model, n_samples=num_sample_images, steps=flow_steps,
+                                  image_size=image_size, device=device)
+            save_samples(samples, epoch, save_dir)
+        # 每个 epoch 结束保存一次 checkpoint
+        ckpt = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "global_step": global_step,
+            "epoch": epoch
+        }
+        ckpt_path = os.path.join(save_dir, f"flowmatch_ckpt_epoch_{epoch:03d}.pt")
+        torch.save(ckpt, ckpt_path)
+        print(f"[saved checkpoint] {ckpt_path}")
+
+    print("Training finished.")
+
+if __name__ == "__main__":
+    main()
