@@ -77,12 +77,13 @@ class ResidualBlock(nn.Module):
         self.residual_conv = nn.Conv2d(in_ch, out_ch, kernel_size=1) if in_ch != out_ch else nn.Identity()
 
     def forward(self, x, t_emb):
-        residual = self.residual_conv(x)  # 残差分支
-        h = self.conv1(x)
-        t_emb = self.time_emb_proj(t_emb)
-        h = h + t_emb[:, :, None, None]   # (B, C) → (B, C, 1, 1) 广播到空间维
-        h = self.conv2(h)
-        return h + residual
+        # x: [B, in_ch, H, W]；t_emb: [B, time_emb_dim]
+        residual = self.residual_conv(x)  # [B, in_ch, H, W] -> [B, out_ch, H, W]
+        h = self.conv1(x)                 # [B, in_ch, H, W] -> [B, out_ch, H, W]
+        t_emb = self.time_emb_proj(t_emb) # [B, time_emb_dim] -> [B, out_ch]
+        h = h + t_emb[:, :, None, None]   # [B, out_ch, 1, 1] 广播到空间维相加
+        h = self.conv2(h)                 # [B, out_ch, H, W] -> [B, out_ch, H, W]
+        return h + residual               # [B, out_ch, H, W]
 
 class SelfAttention2D(nn.Module):
     """二维特征图上的多头自注意力。
@@ -99,10 +100,10 @@ class SelfAttention2D(nn.Module):
         self.proj_out = nn.Conv2d(in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        h = self.norm(x)
-        qkv = self.qkv(h)
-        q, k, v = qkv.chunk(3, dim=1)  # 拆出 Q、K、V
+        B, C, H, W = x.shape           # x: [B, C, H, W]
+        h = self.norm(x)               # [B, C, H, W] -> 同尺寸
+        qkv = self.qkv(h)              # [B, C, H, W] -> [B, 3C, H, W]
+        q, k, v = qkv.chunk(3, dim=1)  # 拆出 Q、K、V，各 [B, C, H, W]
         # reshape 成多头序列：(B, heads, head_dim, H*W)
         q = q.view(B, self.num_heads, C // self.num_heads, H * W)
         k = k.view(B, self.num_heads, C // self.num_heads, H * W)
@@ -110,10 +111,12 @@ class SelfAttention2D(nn.Module):
 
         # 缩放点积注意力：softmax(Q^T K / sqrt(d))
         attn = torch.softmax(torch.matmul(q.transpose(-2, -1), k) / math.sqrt(C // self.num_heads), dim=-1)
+        # attn: [B, heads, H*W, H*W]
         out = torch.matmul(attn, v.transpose(-2, -1)).transpose(-2, -1)
+        # out: [B, heads, head_dim, H*W]
         out = out.contiguous().view(B, C, H, W)  # 还原回 (B, C, H, W)
-        out = self.proj_out(out)
-        return x + out  # 残差连接
+        out = self.proj_out(out)       # [B, C, H, W] -> [B, C, H, W]
+        return x + out  # 残差连接 [B, C, H, W]
 
 class DownBlock(nn.Module):
     """UNet 编码器（下采样）块：若干残差块 + 可选注意力 + 下采样。"""
@@ -129,12 +132,13 @@ class DownBlock(nn.Module):
         self.downsample = nn.Conv2d(out_ch, out_ch, kernel_size=3, stride=2, padding=1) if downsample else nn.Identity()
 
     def forward(self, x, t_emb):
+        # x: [B, in_ch, H, W]
         skips = []  # 记录各残差块输出，作为上采样阶段的 skip 连接
         for block in self.blocks:
-            x = block(x, t_emb)
-            skips.append(x)
-        x = self.attn(x)
-        x = self.downsample(x)
+            x = block(x, t_emb)      # 首个块 [B, in_ch, H, W] -> [B, out_ch, H, W]，其余保持
+            skips.append(x)          # skip: [B, out_ch, H, W]
+        x = self.attn(x)             # [B, out_ch, H, W] -> 同尺寸
+        x = self.downsample(x)       # [B, out_ch, H, W] -> [B, out_ch, H/2, W/2]（downsample=False 时不变）
         return x, skips
 
 class UpBlock(nn.Module):
@@ -151,13 +155,15 @@ class UpBlock(nn.Module):
         self.attn = SelfAttention2D(out_ch) if use_attention else nn.Identity()
 
     def forward(self, x, skips, t_emb):
-        x = self.upsample(x)
+        # x: [B, in_ch, H, W]（低分辨率，将被上采样）
+        # 上采样后空间尺寸记作 H'、W'（正常 upsample 时 H'=2H、W'=2W，upsample=False 时 H'=H、W'=W）
+        x = self.upsample(x)         # [B, in_ch, H, W] -> [B, out_ch, H', W']
         for block in self.blocks:
             if skips:
                 # 逐个弹出（从最深层开始）的 skip 特征在通道维拼接
-                x = torch.cat([x, skips.pop()], dim=1)
-            x = block(x, t_emb)
-        x = self.attn(x)
+                x = torch.cat([x, skips.pop()], dim=1)  # [B, in_ch + out_ch, H', W']
+            x = block(x, t_emb)      # [B, in_ch + out_ch, H', W'] -> [B, out_ch, H', W']
+        x = self.attn(x)             # [B, out_ch, H', W'] -> 同尺寸
         return x
 
 class MidBlock(nn.Module):
@@ -171,9 +177,10 @@ class MidBlock(nn.Module):
         self.attn = SelfAttention2D(channels)
 
     def forward(self, x, t_emb):
+        # x: [B, channels, H, W]
         for block in self.blocks:
-            x = block(x, t_emb)
-        x = self.attn(x)
+            x = block(x, t_emb)      # 尺寸不变 [B, channels, H, W] -> 同尺寸
+        x = self.attn(x)             # [B, channels, H, W] -> 同尺寸
         return x
 
 class EnhancedUNet(nn.Module):
@@ -193,33 +200,81 @@ class EnhancedUNet(nn.Module):
             nn.Linear(time_emb_dim, time_emb_dim)  #线性函数
         )
 
+        # 初始卷积：通道 in_ch → base_ch，空间尺寸不变（kernel_size=3, padding=1）
         self.init_conv = nn.Conv2d(in_ch, base_ch, kernel_size=3, padding=1)
 
         # 下采样：通道 base_ch → 2x → 4x → 8x，空间尺寸逐层减半
-3, H, W)   —— B 张图，3 通道（RGB），高 H 宽 W
-经过 nn.Conv2d(in_ch=3, base_ch=128, kernel_size=3, padding=1) 后变成：
+        self.down1 = DownBlock(base_ch, base_ch, time_emb_dim, num_res_blocks, downsample=False)
+        self.down2 = DownBlock(base_ch, base_ch * 2, time_emb_dim, num_res_blocks)
+        self.down3 = DownBlock(base_ch * 2, base_ch * 4, time_emb_dim, num_res_blocks)
+        self.down4 = DownBlock(base_ch * 4, base_ch * 8, time_emb_dim, num_res_blocks, use_attention=True)
 
+        self.mid = MidBlock(base_ch * 8, time_emb_dim, num_res_blocks * 2)
 
-(B, 128, H, W)  —— 通道从 3 → 128，高宽不变
+        # 上采样：通道 8x → 4x → 2x → base_ch，空间尺寸逐层恢复
+        self.up4 = UpBlock(base_ch * 8, base_ch * 4, time_emb_dim, num_res_blocks, use_attention=True)
+        self.up3 = UpBlock(base_ch * 4, base_ch * 2, time_emb_dim, num_res_blocks)
+        self.up2 = UpBlock(base_ch * 2, base_ch, time_emb_dim, num_res_blocks)
+        self.up1 = UpBlock(base_ch, base_ch, time_emb_dim, num_res_blocks, upsample=False)
+
+        # 输出层：归一化 + 激活 + 卷积到 3 通道（RGB 速度场）
+        self.final = nn.Sequential(
+            nn.GroupNorm(8, base_ch),
+            nn.SiLU(),
+            nn.Conv2d(base_ch, in_ch, kernel_size=3, padding=1)
+        )
+
     def forward(self, x, t):
-        # t: (B,) 浮点数，值域 [0,1]
-        t_emb = self.time_mlp(t)
-        x = self.init_conv(x)
+        # 下面的尺寸注释以默认参数 in_ch=3、base_ch=128、输入 1024x1024 为例。
+        # 若实际分辨率不是 1024，只需按同样规律缩放空间尺寸即可（例如 H/2 处为 512）。
+
+        # t: [B] 浮点数，值域 [0,1]
+        t_emb = self.time_mlp(t)       # [B] -> [B, 512]
+        x = self.init_conv(x)          # [B, 3, 1024, 1024] -> [B, 128, 1024, 1024]
 
         skips = []  # 收集各下采样层的 skip 特征，供上采样层拼接
+
+        # down1：不改变空间尺寸，两个残差块都输出 [B, 128, 1024, 1024]；
+        #       返回 x=[B, 128, 1024, 1024]，并保存 2 个同尺寸 skip。
         x, s1 = self.down1(x, t_emb); skips.extend(s1)
+
+        # down2：残差块输出/skip 为 [B, 256, 1024, 1024]，stride=2 下采样后：
+        #       [B, 128, 1024, 1024] -> [B, 256, 512, 512]。
         x, s2 = self.down2(x, t_emb); skips.extend(s2)
+
+        # down3：残差块输出/skip 为 [B, 512, 512, 512]，下采样后：
+        #       [B, 256, 512, 512] -> [B, 512, 256, 256]。
         x, s3 = self.down3(x, t_emb); skips.extend(s3)
+
+        # down4：残差块输出/skip 为 [B, 1024, 256, 256]，下采样后：
+        #       [B, 512, 256, 256] -> [B, 1024, 128, 128]。
         x, s4 = self.down4(x, t_emb); skips.extend(s4)
 
-        x = self.mid(x, t_emb)
+        # 瓶颈：空间尺寸和通道数不变。
+        x = self.mid(x, t_emb)         # [B, 1024, 128, 128] -> 同尺寸
 
+        # up4：先上采样 [B, 1024, 128, 128] -> [B, 512, 256, 256]；
+        #       每次拼接一个 [B, 1024, 256, 256] 的 skip，通道变为 1536，
+        #       再经残差块恢复为 [B, 512, 256, 256]（共拼接 2 次）。
         x = self.up4(x, skips, t_emb)
+
+        # up3：先 [B, 512, 256, 256] -> [B, 256, 512, 512]；
+        #       与每个 [B, 512, 512, 512] 的 skip 拼接为 [B, 768, 512, 512]，
+        #       再恢复为 [B, 256, 512, 512]（共拼接 2 次）。
         x = self.up3(x, skips, t_emb)
+
+        # up2：先 [B, 256, 512, 512] -> [B, 128, 1024, 1024]；
+        #       与每个 [B, 256, 1024, 1024] 的 skip 拼接为 [B, 384, 1024, 1024]，
+        #       再恢复为 [B, 128, 1024, 1024]（共拼接 2 次）。
         x = self.up2(x, skips, t_emb)
+
+        # up1：不再改变空间尺寸 [B, 128, 1024, 1024]；
+        #       与每个 [B, 128, 1024, 1024] 的 skip 拼接为 [B, 256, 1024, 1024]，
+        #       再恢复为 [B, 128, 1024, 1024]（共拼接 2 次）。
         x = self.up1(x, skips, t_emb)
 
-        return self.final(x)
+        # 输出：归一化/激活不改变尺寸，最后卷积将通道 128 -> 3。
+        return self.final(x)            # [B, 128, 1024, 1024] -> [B, 3, 1024, 1024]
 
 # -- 模型定义结束 --
 
