@@ -25,14 +25,14 @@ python -c "import mujoco; print(mujoco.__version__)"
 
 ## 2. 示例顺序
 
-| 顺序 | 文件 | 重点 | 运行后观察 |
+| 顺序 | 文件 | 重点 | 可视化与输出 |
 |---|---|---|---|
-| 1 | `01_free_fall.py` | `MjModel`、`MjData`、XML、`mj_step` | 位置和速度随时间变化 |
-| 2 | `02_joint_control.py` | joint、actuator、`data.ctrl`、viewer | 摆杆跟踪目标角度 |
-| 3 | `03_sensor_and_contact.py` | site、touch sensor、`data.ncon` | 小球落地并产生接触 |
-| 4 | `04_camera_render.py` | camera、renderer、RGB 图像 | 生成 `camera_frame.png` |
-| 5 | `05_gymnasium_env.py` | `reset`、`step`、action/observation space | 得到标准环境返回值 |
-| 6 | `06_trajectory_contract.py` | 状态、动作、时间戳、轨迹 | 生成 `trajectory.npz` |
+| 1 | `01_free_fall.py` | `MjModel`、`MjData`、XML、`mj_step` | viewer 观察小球下落，并打印位置和速度 |
+| 2 | `02_joint_control.py` | joint、actuator、`data.ctrl`、viewer | viewer 观察摆杆跟踪目标角度 |
+| 3 | `03_sensor_and_contact.py` | site、touch sensor、`data.ncon` | viewer 观察落地接触，并打印传感器统计 |
+| 4 | `04_camera_render.py` | camera、renderer、RGB 图像 | viewer 观察运动，同时生成 `camera_frame.png` |
+| 5 | `05_gymnasium_env.py` | `reset`、`step`、`render`、action/observation space | Gymnasium viewer 观察环境，并打印返回值 |
+| 6 | `06_trajectory_contract.py` | 状态、动作、时间戳、轨迹 | viewer 观察采集过程，并生成 `trajectory.npz` |
 
 每个文件都可以从当前目录直接运行：
 
@@ -45,7 +45,9 @@ python 05_gymnasium_env.py
 python 06_trajectory_contract.py
 ```
 
-`02_joint_control.py` 会打开交互窗口。运行期间可以观察摆杆，关闭窗口后终端会打印最终关节状态。
+所有示例默认都会尝试打开 MuJoCo 交互窗口；运行期间可以直接观察物体或关节运动。`04_camera_render.py` 同时展示实时 viewer 和离屏相机渲染，并生成 `camera_frame.png`。窗口关闭后对应程序会结束可视化循环，终端仍会打印已经采集到的统计或轨迹信息。
+
+如果在没有桌面环境的服务器、容器或 SSH 会话中运行，实时 viewer 可能因 GLFW/OpenGL 初始化失败。此时可以设置 `MUJOCO_GL=egl` 或 `MUJOCO_GL=osmesa` 使用离屏渲染；需要完整实时窗口时，请在带图形桌面的本机运行。
 
 ## 3. 每一步应该弄懂什么
 
@@ -126,7 +128,7 @@ MuJoCo 的接触检测由几何体完成；`site` 是适合挂载传感器和定
 
 ### viewer 不显示
 
-先运行无窗口的 `01_free_fall.py`、`03_sensor_and_contact.py` 或 `06_trajectory_contract.py`。服务器环境没有图形桌面时，优先使用离屏渲染示例。
+先确认当前环境是否有桌面显示和可用的 GLFW/OpenGL。服务器环境没有图形桌面时，实时 viewer 无法打开；可优先运行 `04_camera_render.py` 的离屏渲染部分，并设置 `MUJOCO_GL=egl` 或 `MUJOCO_GL=osmesa`。
 
 ### `GLFW` 或 OpenGL 报错
 
