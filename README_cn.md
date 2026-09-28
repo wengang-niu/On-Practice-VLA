@@ -57,10 +57,10 @@ On-Practice-VLA 是一个面向实践驱动迭代的研究项目仓库，用于�
 从 [MuJoCo 渐进式学习文档](./basic_knowledge/mujoco/README.md) 开始，按以下顺序学习：
 
 ```text
-XML 建模 → 仿真状态 → 动作控制 → 接触与传感器 → 相机观测 → Gymnasium 环境 → 轨迹数据
+认识模型 → 仿真步 → 查看器 → 位姿 → 关节与执行器 → 接触与传感器 → 相机 → Gymnasium 环境 → 轨迹数据
 ```
 
-该目录包含六个可独立运行的示例，覆盖自由落体、关节控制、接触传感器、相机渲染、Gymnasium 环境和轨迹数据。详细的环境准备、运行命令、常见问题及其与 LeRobot 教程的对应关系，请参考该目录的 README。
+该目录包含 13 个可独立运行的小示例，每个只引入一个新概念，从读取模型维度一直到采集完整轨迹。详细的环境准备、运行命令、常见问题及其与 LeRobot 教程的对应关系，请参考该目录的 README。
 
 ## 环境要求
 
@@ -73,7 +73,7 @@ cd basic_knowledge/mujoco
 python -m venv .venv
 source .venv/bin/activate  # Windows：.venv\Scripts\activate
 pip install -r requirements.txt
-python 01_free_fall.py
+python 01_hello_mujoco.py
 ```
 
 Transformer、VAE 等模块的详细安装和运行方式分别见：

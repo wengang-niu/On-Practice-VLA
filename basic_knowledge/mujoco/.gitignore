@@ -1,0 +1,7 @@
+# 示例运行产生的输出文件，不入库
+camera_front.png
+trajectory.npz
+
+# Python 缓存
+__pycache__/
+*.pyc

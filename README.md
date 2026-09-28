@@ -57,10 +57,10 @@ The README in each subdirectory describes the dependencies, configuration, and s
 Start with the [progressive MuJoCo learning documentation](./basic_knowledge/mujoco/README.md) and follow this sequence:
 
 ```text
-XML modeling → simulation state → action control → contacts and sensors → camera observations → Gymnasium environments → trajectory data
+model basics → simulation step → viewer → pose → joints and actuators → contacts and sensors → camera observations → Gymnasium environments → trajectory data
 ```
 
-This directory contains six independently runnable examples covering free fall, joint control, contact sensors, camera rendering, Gymnasium environments, and trajectory data. For detailed environment setup, run commands, frequently asked questions, and the relationship to the LeRobot tutorial, please refer to the README in that directory.
+This directory contains 13 small, independently runnable examples that introduce one new concept at a time, from reading the model dimensions to recording a full trajectory. For detailed environment setup, run commands, frequently asked questions, and the relationship to the LeRobot tutorial, please refer to the README in that directory.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ cd basic_knowledge/mujoco
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python 01_free_fall.py
+python 01_hello_mujoco.py
 ```
 
 For detailed installation and usage instructions for the Transformer and VAE modules, see:

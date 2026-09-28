@@ -1,0 +1,13 @@
+# 使用 Python 3.10（与根项目 project.toml 一致）
+
+# MuJoCo 物理引擎 —— 锁定 3.1.6，与目标仓库 lerobot-mujoco-tutorial 保持一致
+mujoco==3.1.6
+
+# 数值计算 —— 锁定 1.x（mujoco 3.1.6 尚未适配 numpy 2.x，装 2.x 会 import 报错）
+numpy==1.26.4
+
+# 强化学习环境接口 —— 仅示例 12_gymnasium.py 需要
+gymnasium
+
+# 图像保存 —— 示例 11_camera.py / 13_trajectory.py 需要
+Pillow
