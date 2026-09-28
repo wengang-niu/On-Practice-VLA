@@ -6,9 +6,12 @@ PD 控制器：力矩 = kp*(目标角 - 当前角) - kv*当前角速度
 
 运行方式：
     python 08_pd_control.py
+（弹出窗口：单摆从下垂位置被拉到 0.5 rad 并停住；终端打印角度/力矩；关窗退出。）
 """
 
+import time
 import mujoco
+import mujoco.viewer  # 查看器子模块，必须显式 import
 
 # -- 1. 一个单摆（motor 执行器，供我们写入 PD 算出的力矩） ---------------------------
 XML = """
@@ -36,14 +39,22 @@ kv    = 2.0    # 微分增益：提供阻尼，避免来回震荡
 
 # -- 3. 控制循环：每步算误差 -> 算力矩 -> 写入 data.ctrl -> 推进仿真 -----------------
 print("  步  | 当前角 q(rad) | 目标(rad) | 力矩 tau(N·m)")
-for step in range(1, 301):
-    q  = data.qpos[0]                  # 当前角度
-    qd = data.qvel[0]                  # 当前角速度
-    tau = kp * (q_des - q) - kv * qd   # PD 控制律
-    data.ctrl[0] = tau                 # 把算出的力矩交给 motor
-    mujoco.mj_step(model, data)
-    if step in (10, 50, 300):
-        print(f"{step:5d} | {q:+.4f}       | {q_des:+.4f}   | {tau:+.4f}")
+step = 0
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    while viewer.is_running():
+        step_start = time.time()
+        q  = data.qpos[0]                  # 当前角度
+        qd = data.qvel[0]                  # 当前角速度
+        tau = kp * (q_des - q) - kv * qd   # PD 控制律
+        data.ctrl[0] = tau                 # 把算出的力矩交给 motor
+        mujoco.mj_step(model, data)
+        step += 1
+        if step == 1 or step % 25 == 0:    # 每 25 步（0.25 秒）打印一次
+            print(f"{step:5d} | {data.qpos[0]:+.4f}       | {q_des:+.4f}   | {data.ctrl[0]:+.4f}")
+        viewer.sync()                      # 把最新状态渲染到窗口
+        time_until_next = model.opt.timestep - (time.time() - step_start)
+        if time_until_next > 0:
+            time.sleep(time_until_next)
 
 # -- 4. 结果说明 ----------------------------------------------------------------
 # 角度从 0 逐渐逼近 0.5 rad：误差大时力矩大、把关节快速拉过去，接近时力矩减小。

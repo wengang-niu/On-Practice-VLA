@@ -6,9 +6,11 @@
 
 运行方式：
     python 01_hello_mujoco.py
+（终端打印模型信息，最后会弹出一个窗口展示这个静态场景。）
 """
 
 import mujoco
+import mujoco.viewer  # 查看器是一个子模块，必须显式 import
 
 # -- 1. 用 MJCF（MuJoCo XML）字符串描述一个最简单的静态场景 ------------------------
 # MuJoCo 的场景用 MJCF（MuJoCo XML）格式描述。
@@ -66,5 +68,12 @@ print("\n== 当前状态 ==")
 print("data.time (仿真时钟) =", data.time)
 print("data.qpos (位置)     =", data.qpos)
 print("data.qvel (速度)     =", data.qvel)
+
+# -- 8. 用查看器看一眼这个静态场景 ----------------------------------------------
+# 这个场景没有任何关节、物体固定，所以不推进仿真（不 mj_step），
+# 只反复 viewer.sync() 把当前状态渲染到窗口。按住鼠标左键拖动可以旋转视角。
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    while viewer.is_running():
+        viewer.sync()
 
 print("\n到这里你已经知道：模型(mjModel)定义世界，状态(mjData)记录当前时刻。")

@@ -5,9 +5,12 @@
 
 运行方式：
     python 06_two_link_arm.py
+（弹出窗口：两杆臂在力矩下摆动；终端打印两个关节角；关窗退出。）
 """
 
+import time
 import mujoco
+import mujoco.viewer  # 查看器子模块，必须显式 import
 
 # -- 1. 两杆臂 -----------------------------------------------------------------
 # link1 挂在世界里（肩关节 shoulder），link2 挂在 link1 末端（肘关节 elbow）。
@@ -49,9 +52,19 @@ print("shoulder 的 id =", shoulder_id, "，elbow 的 id =", elbow_id)
 print("shoulder 角度在 qpos 的下标 =", model.jnt_qposadr[shoulder_id])
 print("elbow    角度在 qpos 的下标 =", model.jnt_qposadr[elbow_id])
 
-# -- 3. 给两个关节各施加一个力矩，跑几步看角度变化 ----------------------------------
+# -- 3. 给两个关节各施加一个力矩，看它在窗口里摆动 ----------------------------------
 data.ctrl[0] = 0.5   # 肩关节 0.5 N·m
 data.ctrl[1] = -0.3  # 肘关节 -0.3 N·m
-for _ in range(10):
-    mujoco.mj_step(model, data)
-print("\n10 步后 qpos =", data.qpos.round(4))
+print("\n  步   肩角度(rad)  肘角度(rad)")
+step = 0
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    while viewer.is_running():
+        step_start = time.time()
+        mujoco.mj_step(model, data)
+        step += 1
+        if step == 1 or step % 25 == 0:   # 每 25 步（0.25 秒）打印一次
+            print(f"{step:4d}   {data.qpos[0]:+.4f}     {data.qpos[1]:+.4f}")
+        viewer.sync()                     # 把最新状态渲染到窗口
+        time_until_next = model.opt.timestep - (time.time() - step_start)
+        if time_until_next > 0:
+            time.sleep(time_until_next)

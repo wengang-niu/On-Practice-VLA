@@ -7,9 +7,11 @@
 
 运行方式：
     python 04_pose.py
+（终端打印 7 维位姿与旋转矩阵；最后弹窗展示初始姿态，关窗退出。）
 """
 
 import mujoco
+import mujoco.viewer  # 查看器子模块，必须显式 import
 import numpy as np
 
 # -- 1. 一个带 freejoint 的小球，初始就有位置和姿态 -------------------------------
@@ -54,5 +56,12 @@ R = np.zeros(9)
 mujoco.mju_quat2Mat(R, quat)      # 四元数 -> 3x3 旋转矩阵（按行展开成 9 个数）
 print("\n四元数 -> 旋转矩阵 (3x3)：")
 print(R.reshape(3, 3).round(3))
+
+# -- 6. 用查看器看一眼初始位姿（只展示，不推进仿真） --------------------------------
+# 为看清"绕 z 转 90°"的姿态，这里不 mj_step（否则小球会受重力掉下去）。
+# 按住鼠标左键拖动可以旋转视角，从不同角度看球的姿态。
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    while viewer.is_running():
+        viewer.sync()
 
 print("\n到这里你已经知道：位姿 = 位置(3) + 四元数(4)，共 7 个数。")

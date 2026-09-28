@@ -14,7 +14,7 @@
 ## 环境要求
 
 - **Python 3.10**（与根项目 `project.toml` 一致）
-- **有显示器**：示例 03、12 会弹出交互式查看器窗口。没有显示器（SSH / 容器 / 云主机）时，示例 11、13 仍可用离屏渲染跑通，03/12 需要自行跳过或配置虚拟显示。
+- **有显示器**：示例 **01–10、12** 会弹出交互式查看器窗口。没有显示器（SSH / 容器 / 云主机）时，示例 **11、13** 仍可用离屏渲染跑通，其余需要自行跳过或配置虚拟显示（如 `xvfb`）。
 
 ## 安装
 
@@ -38,21 +38,23 @@ pip install -r requirements.txt
 
 | 文件 | 学习目标 | 运行命令 | 应看到什么 |
 | --- | --- | --- | --- |
-| `01_hello_mujoco.py` | 认识 `mjModel` 与 `mjData` 的分离 | `python 01_hello_mujoco.py` | 打印模型维度 `nq/nv/nu`、刚体/几何数量 |
-| `02_free_fall.py` | 理解 `mj_step` 如何推进时间与状态 | `python 02_free_fall.py` | `data.time` 递增、小球高度逐减 |
-| `03_viewer.py` | 会用交互式查看器看持续仿真 | `python 03_viewer.py` | 弹出窗口，小球持续下落 |
-| `04_pose.py` | 理解自由体的位姿（位置 + 四元数） | `python 04_pose.py` | 打印 7 维 `qpos`，四元数 w 在前 |
-| `05_single_joint.py` | 理解关节（hinge）与力矩执行器（motor） | `python 05_single_joint.py` | 给力矩后 `qpos` 单调变化 |
-| `06_two_link_arm.py` | 理解刚体嵌套与多关节，按名取关节角 | `python 06_two_link_arm.py` | `nq==nv==nu==2`，按名找到下标 |
-| `07_actuator_modes.py` | 区分"位置伺服"与"力矩"执行器 | `python 07_actuator_modes.py` | position 自己追目标，motor 无反馈 |
-| `08_pd_control.py` | 手写 PD 控制器锁定目标角 | `python 08_pd_control.py` | 关节角逼近目标并稳定 |
-| `09_contact.py` | 理解接触检测 `data.ncon` / `data.contact` | `python 09_contact.py` | 落地前 `ncon=0`，落地后 `ncon=1` |
-| `10_touch_sensor.py` | 理解触觉传感器 `<touch>` | `python 10_touch_sensor.py` | 落地后 `sensordata ≈ mg` |
-| `11_camera.py` | 理解相机与离屏渲染，得到 RGB 图像 | `python 11_camera.py` | 生成 `camera_front.png` |
+| `01_hello_mujoco.py` | 认识 `mjModel` 与 `mjData` 的分离 | `python 01_hello_mujoco.py` | 打印模型维度 `nq/nv/nu`、刚体/几何数量；弹窗展示静态场景 |
+| `02_free_fall.py` | 理解 `mj_step` 如何推进时间与状态 | `python 02_free_fall.py` | 窗口里小球实时下落；终端 `data.time` 递增、高度逐减 |
+| `03_viewer.py` | 会用交互式查看器看持续仿真 | `python 03_viewer.py` | 弹窗，小球按真实速度下落，可拖拽视角 |
+| `04_pose.py` | 理解自由体的位姿（位置 + 四元数） | `python 04_pose.py` | 打印 7 维 `qpos`（四元数 w 在前）；弹窗展示初始姿态 |
+| `05_single_joint.py` | 理解关节（hinge）与力矩执行器（motor） | `python 05_single_joint.py` | 窗口里单摆在力矩下加速旋转；终端 `qpos` 单调变化 |
+| `06_two_link_arm.py` | 理解刚体嵌套与多关节，按名取关节角 | `python 06_two_link_arm.py` | `nq==nv==nu==2`，按名找到下标；弹窗看两杆臂摆动 |
+| `07_actuator_modes.py` | 区分"位置伺服"与"力矩"执行器 | `python 07_actuator_modes.py` | 左摆自己追目标停住、右摆不动，并排对比 |
+| `08_pd_control.py` | 手写 PD 控制器锁定目标角 | `python 08_pd_control.py` | 窗口里单摆被拉到目标角并稳定 |
+| `09_contact.py` | 理解接触检测 `data.ncon` / `data.contact` | `python 09_contact.py` | 小球落地，终端 `ncon` 由 0 变 1；关窗后打印接触细节 |
+| `10_touch_sensor.py` | 理解触觉传感器 `<touch>` | `python 10_touch_sensor.py` | 小球落地，终端 `sensordata` 升到 ≈mg |
+| `11_camera.py` | 理解相机与离屏渲染，得到 RGB 图像 | `python 11_camera.py` | 生成 `camera_front.png`（离屏，无需显示器） |
 | `12_gymnasium.py` | 学会 Gymnasium 标准接口 | `python 12_gymnasium.py` | 弹出 HalfCheetah 查看器窗口 |
-| `13_trajectory.py` | 按固定频率采集轨迹并落盘 | `python 13_trajectory.py` | 生成 `trajectory.npz` |
+| `13_trajectory.py` | 按固定频率采集轨迹并落盘 | `python 13_trajectory.py` | 生成 `trajectory.npz`（离屏，无需显示器） |
 
 ## 示例详解
+
+> 示例 **01–10** 会弹出交互式查看器窗口（关窗后脚本打印总结），每个窗口里都能按住鼠标左键拖动旋转视角；**11、13** 是离屏渲染，不弹窗、无需显示器。
 
 ### 01 `hello_mujoco` — 认识模型与状态
 
@@ -120,7 +122,7 @@ Gymnasium 是强化学习环境的统一接口，`gymnasium.make("HalfCheetah-v5
 A：查看器是子模块，必须显式 `import mujoco.viewer` 才能用 `mujoco.viewer.launch_passive`。
 
 **Q：查看器打不开 / `GLFW error` / 黑屏？**
-A：通常是没显示器（SSH/容器/云主机）。示例 11、13 用离屏渲染不受影响；03、12 需要显示器或虚拟显示（如 `xvfb`）。
+A：通常是没显示器（SSH/容器/云主机）。示例 11、13 用离屏渲染不受影响；01–10、12 需要显示器或虚拟显示（如 `xvfb`）。
 
 **Q：`gymnasium` 装不上 / 找不到环境？**
 A：`HalfCheetah-v5` 需要安装 `gymnasium`（本目录 `requirements.txt` 已包含）。若版本冲突，优先保住 `mujoco==3.1.6`，再下调 gymnasium 的补丁版本。
